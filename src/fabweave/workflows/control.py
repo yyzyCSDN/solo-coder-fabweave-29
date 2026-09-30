@@ -223,7 +223,7 @@ def rework_release_decision(
 ) -> Decision:
     authorization = authorization_decision(policy, operation, prior_reworks, defect_code, engineer_approval)
     release = release_decision(hold, expected_hold_version, at)
-    return _combine([authorization, release] if authorization.allowed else [authorization])
+    return _combine([authorization, release], expected_hold_version=expected_hold_version)
 
 
 def merge_and_commit(request_id: str, lots: list[Lot], ledger: CommitLedger, order_id: str) -> tuple[Lot, Allocation]:

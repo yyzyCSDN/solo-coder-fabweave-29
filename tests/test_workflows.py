@@ -220,6 +220,33 @@ def test_rework_authorization_combines_budget_defect_and_engineer_gate():
     )
 
 
+def test_rework_authorization_fails_closed_for_unconfigured_operation():
+    policy = ReworkPolicy(4, {"ETCH": 2}, frozenset({"D1"}), frozenset())
+    decision = authorization_decision(policy, "CMP", 0, "D1", None)
+    assert decision.reasons == ("rework_limit_not_configured",)
+    # Still borrows nothing even when every other operation allows more reworks.
+    assert not decision.allowed
+    # All gates evaluate together and the basis is retained as evidence.
+    rejected = authorization_decision(policy, "CMP", 5, "D9", None)
+    assert rejected.reasons == (
+        "rework_limit_not_configured",
+        "defect_not_authorized",
+    )
+    assert rejected.evidence["prior_reworks"] == 5
+    assert rejected.evidence["defect_code"] == "D9"
+    assert rejected.evidence["policy_revision"] == 4
+
+
+def test_rework_authorization_evidence_preserves_approval_and_limit():
+    policy = ReworkPolicy(7, {"ETCH": 2}, frozenset({"D2"}), frozenset({"D2"}))
+    allowed = authorization_decision(policy, "ETCH", 1, "D2", "ENG-9")
+    assert allowed.allowed
+    assert allowed.evidence["engineer_approval"] == "ENG-9"
+    assert allowed.evidence["rework_limit"] == 2
+    assert allowed.evidence["operation"] == "ETCH"
+
+
+
 def test_lot_merge_preserves_quantity_and_rejects_held_input():
     lots = [Lot("LOT-A", "P", "R", "S", 1, 10), Lot("LOT-B", "P", "R", "S", 1, 15)]
     merged = merge_lots("REQ-1", lots)
@@ -328,6 +355,44 @@ def test_rework_release_requires_both_authorization_and_hold_completion():
     policy = ReworkPolicy(1, {"ETCH": 2}, frozenset({"D"}))
     hold = HoldState("H", 1, frozenset({"QA"}), frozenset())
     assert rework_release_decision(policy, "ETCH", 0, "D", None, hold, 1, 10).reasons == ("missing_disposition:QA",)
+
+
+def test_rework_release_evaluates_both_gates_and_merges_reasons():
+    policy = ReworkPolicy(1, {"ETCH": 2}, frozenset({"D"}))
+    hold = HoldState("H", 1, frozenset({"QA"}), frozenset(), frozenset({"CUSTOMER"}))
+    # Authorization exhausted while the hold still carries disposition/blocker reasons:
+    # neither side's reasons may swallow the other.
+    decision = rework_release_decision(policy, "ETCH", 2, "D", None, hold, 1, 10)
+    assert decision.reasons == (
+        "rework_limit_exhausted",
+        "missing_disposition:QA",
+        "active_blocker:CUSTOMER",
+    )
+    assert decision.evidence["prior_reworks"] == 2
+    assert decision.evidence["defect_code"] == "D"
+    assert decision.evidence["engineer_approval"] is None
+    assert decision.evidence["policy_revision"] == 1
+    assert decision.evidence["hold_version"] == 1
+    assert decision.evidence["expected_hold_version"] == 1
+
+
+def test_rework_release_keeps_hold_reasons_when_operation_unconfigured():
+    policy = ReworkPolicy(3, {"ETCH": 2}, frozenset({"D"}))
+    hold = HoldState("H", 2, frozenset({"QA"}), frozenset())
+    decision = rework_release_decision(policy, "CMP", 0, "D", None, hold, 2, 10)
+    assert decision.reasons == ("rework_limit_not_configured", "missing_disposition:QA")
+    assert decision.evidence["policy_revision"] == 3
+
+
+def test_rework_release_reports_authorization_and_stale_version_together():
+    policy = ReworkPolicy(1, {"ETCH": 2}, frozenset({"D"}))
+    hold = HoldState("H", 2, frozenset())
+    decision = rework_release_decision(policy, "ETCH", 2, "D", None, hold, 1, 10)
+    # Fail-closed authorization plus the stale hold version are both preserved.
+    assert decision.reasons == ("rework_limit_exhausted", "stale_hold_version")
+    assert decision.evidence["hold_version"] == 2
+    assert decision.evidence["expected_hold_version"] == 1
+
 
 
 def test_merge_and_commit_preserves_quantity_across_services():

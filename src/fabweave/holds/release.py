@@ -21,7 +21,7 @@ class HoldState:
 
 def release_decision(state: HoldState, expected_version: int, at: int) -> Decision:
     if expected_version != state.version:
-        return deny("stale_hold_version", current_version=state.version)
+        return deny("stale_hold_version", hold_version=state.version, expected_hold_version=expected_version, evaluated_at=at)
     if state.released_at is not None:
         return allow(hold_version=state.version, released_at=state.released_at, replay=True)
     missing = sorted(state.required_dispositions - state.completed_dispositions)
