@@ -220,6 +220,18 @@ def test_rework_authorization_combines_budget_defect_and_engineer_gate():
     )
 
 
+def test_rework_authorization_fails_closed_when_operation_limit_not_configured():
+    policy = ReworkPolicy(4, {"ETCH": 2}, frozenset({"D1"}), frozenset({"D1"}))
+    decision = authorization_decision(policy, "CMP", 0, "D1", None)
+    assert decision.reasons == ("rework_limit_not_configured", "engineer_approval_missing")
+    unconfigured = authorization_decision(policy, "CMP", 0, "D9", "ENG-7")
+    assert unconfigured.reasons == ("rework_limit_not_configured", "defect_not_authorized")
+    assert unconfigured.evidence["prior_reworks"] == 0
+    assert unconfigured.evidence["defect_code"] == "D9"
+    assert unconfigured.evidence["engineer_approval"] == "ENG-7"
+    assert unconfigured.evidence["policy_revision"] == 4
+
+
 def test_lot_merge_preserves_quantity_and_rejects_held_input():
     lots = [Lot("LOT-A", "P", "R", "S", 1, 10), Lot("LOT-B", "P", "R", "S", 1, 15)]
     merged = merge_lots("REQ-1", lots)
@@ -328,6 +340,18 @@ def test_rework_release_requires_both_authorization_and_hold_completion():
     policy = ReworkPolicy(1, {"ETCH": 2}, frozenset({"D"}))
     hold = HoldState("H", 1, frozenset({"QA"}), frozenset())
     assert rework_release_decision(policy, "ETCH", 0, "D", None, hold, 1, 10).reasons == ("missing_disposition:QA",)
+
+
+def test_rework_release_merges_gate_reasons_and_preserves_evidence():
+    policy = ReworkPolicy(3, {"ETCH": 1}, frozenset({"D"}))
+    hold = HoldState("H", 2, frozenset({"QA"}), frozenset())
+    decision = rework_release_decision(policy, "ETCH", 1, "D", None, hold, 2, 10)
+    assert decision.reasons == ("rework_limit_exhausted", "missing_disposition:QA")
+    assert decision.evidence["policy_revision"] == 3
+    assert decision.evidence["prior_reworks"] == 1
+    assert decision.evidence["defect_code"] == "D"
+    assert decision.evidence["engineer_approval"] is None
+    assert decision.evidence["hold_version"] == 2
 
 
 def test_merge_and_commit_preserves_quantity_across_services():

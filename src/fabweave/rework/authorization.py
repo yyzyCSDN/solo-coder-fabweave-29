@@ -27,12 +27,17 @@ def authorization_decision(
     reasons: list[str] = []
     limit = policy.limits_by_operation.get(operation)
     if limit is None:
-        limit = max(policy.limits_by_operation.values(), default=0)
-    if prior_reworks >= limit:
+        reasons.append("rework_limit_not_configured")
+    elif prior_reworks >= limit:
         reasons.append("rework_limit_exhausted")
     if defect_code not in policy.allowed_defects:
         reasons.append("defect_not_authorized")
     if defect_code in policy.requires_engineer and not engineer_approval:
         reasons.append("engineer_approval_missing")
-    evidence = {"policy_revision": policy.revision, "prior_reworks": prior_reworks}
+    evidence = {
+        "policy_revision": policy.revision,
+        "prior_reworks": prior_reworks,
+        "defect_code": defect_code,
+        "engineer_approval": engineer_approval,
+    }
     return deny(*reasons, **evidence) if reasons else allow(**evidence)
